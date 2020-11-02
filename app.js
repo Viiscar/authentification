@@ -1,9 +1,11 @@
-// redis-server + npm run dev
+// redis-server + npm run dev + sudo systemctl start mongod
 const express = require('express');
 const bodyParser = require('body-parser');
 const session = require('express-session');
 const RedisStore = require('connect-redis')(session);
 const Redis = require('ioredis');
+const User = require('./db');
+
 const app = express();
 
 //in-memory store
@@ -22,11 +24,12 @@ const {
 const IN_PROD = NODE_ENV ==='production';
 
 //TODO DB
-const users = [
-    {id:1, name:'fanch', email: 'efem@hotmail.com', password: 'pwd'},
-    {id:2, name:'mignonne', email: 'mignonne@hotmail.com', password: 'pwd'},
-    {id:3, name:'plazamerica', email: 'plazamerica@hotmail.com', password: 'pwd'}
-]
+// const users = [
+//     {id:1, name:'fanch', email: 'efem@hotmail.com', password: 'pwd'},
+//     {id:2, name:'mignonne', email: 'mignonne@hotmail.com', password: 'pwd'},
+//     {id:3, name:'plazamerica', email: 'plazamerica@hotmail.com', password: 'pwd'}
+// ]
+
 app.use(bodyParser.urlencoded({
     extended: true
 }))
@@ -38,6 +41,7 @@ app.use(session({
     resave: false,
     saveUninitialized: false,
     secret: SESS_SECRET,
+    rolling: true,
     cookie: {
         maxAge:SESS_LIFETIME,
         sameSite: true,
@@ -141,18 +145,36 @@ app.get('/register',redirectHome, (req, res) =>{
 app.post('/login', redirectHome, (req, res) =>{
     const {email, password} = req.body;
 
-    if(email && password){ //TODO validation  (verify email and pwd length)
-        const user = users.find(
-            user => user.email === email && user.password === password //TODO hash pwd
-        );
+    // if(email && password){ //TODO validation  (verify email and pwd length)
+    //     const user = users.find(
+    //         user => user.email === email && user.password === password //TODO hash pwd
+    //     );
 
-        if(user){
-            req.session.userId = user.id;
-            return res.redirect('/home');
+    //     if(user){
+    //         req.session.userId = user.id;
+    //         return res.redirect('/home');
+    //     }
+    // }
+
+    let username = email;
+
+      try {
+        var user = User.findOne({ username: username }).exec();
+        if(!user) {
+            res.redirect("/login");
         }
+        user.comparePassword(password, (error, match) => {
+            if(!match) {
+              res.redirect("/login");
+            }
+        });
+        req.session.user = user;
+        res.redirect("/dashboard");
+    } catch (error) {
+      console.log(error)
     }
 
-    res.redirect('/login');
+    //res.redirect('/login');
 });
 
 //When registering
@@ -160,27 +182,43 @@ app.post('/register', redirectHome, (req, res) =>{
     const {name, email, password} = req.body;
 
     if (name && email && password) { //TODO validation (verify email and pwd length)
-        const exists = users.some(
-            user => user.email === email
-        )
+        // const exists = users.some( //cést ici que ca merde
+        //     user => user.email === email
+        // )
 
-        if(!exists){
-            const user = {
-                id: users.length + 1, //ajouter date ou req.session.id ?
-                name,
-                email,
-                password // TODO hash
+        let user = new User({
+            username: name,
+            email: email,
+            password: password,
+        });
+
+        user.save((err, docs) => {
+            if (err) {
+                console.log("err", err)
+              //res.redirect("/register");
+            } else {
+                console.log(docs)
+              req.session.user = docs;
+              //res.redirect("/home");
             }
+        })
+        // if(!exists){
+        //     const user = {
+        //         id: users.length + 1, //ajouter date ou req.session.id ?
+        //         name,
+        //         email,
+        //         password // TODO hash
+        //     }
 
-            users.push(user);
+        //     users.push(user);
 
-            req.session.userId = user.id;
+        //     req.session.userId = user.id;
 
-            return res.redirect('/home');
-        }
+        //     return res.redirect('/home');
+        // }
     }
     
-    res.redirect('/register'); //TODO qs /register?error=error.auth.userExist
+    //res.redirect('/register'); //TODO qs /register?error=error.auth.userExist
 });
 
 //When loggin out
